@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"strings"
 	"time"
 
@@ -99,21 +98,38 @@ func serviceIDList() map[string]serviceDef {
 		logrus.Error("Error with serviceID client connection")
 	}
 
-	//Get a list of Services in this environment
+	//Get a list of Hosts in this environment
 
 	services, err := c.Service.List(nil)
 	for _, h := range services.Data {
 
 		if h.AccountId == projectID {
-			var dat map[string]interface{}
-			//Include only services where rebalance label is set to true
-			labels, _ := json.Marshal(h.LaunchConfig.Labels)
-			if err := json.Unmarshal(labels, &dat); err != nil {
-				panic(err)
-			}
+			if _, exists := rancherServices[h.Name]; exists {
+				//Ignore it as its a Rancher Service
+			} else {
+				var dat map[string]interface{}
+				var affinity = false
+				//Exclude the service is rebalance label is set to false
+				labels, _ := json.Marshal(h.LaunchConfig.Labels)
+				if err := json.Unmarshal(labels, &dat); err != nil {
+					panic(err)
+				}
 
-			if val, ok := dat["rebalance"]; ok {
-				if val == "true" {
+				//Check for affinity rules
+				for k, _ := range dat {
+					if strings.Index(k, "scheduler.affinity") > 0 {
+						affinity = true
+					}
+				}
+
+				if affinity {
+					logrus.Info("Not balancing " + h.Name + " due to affinity rules")
+				} else {
+					if val, ok := dat["rebalance"]; ok {
+						if val == "false" {
+							break
+						}
+					}
 					var tempService serviceDef
 					tempService.id = h.Id
 					tempService.name = h.Name
@@ -157,10 +173,7 @@ func serviceHosts(service serviceDef, hostList map[string]int) int {
 		//first find a container
 		for instance := range containers {
 			if containers[instance] == high {
-				c, err := client.NewRancherClient(opts)
-				if err != nil {
-					logrus.Error("Error with host client connection")
-				}
+
 				cattleURLv2 := strings.Replace(cattleURL, "/v1", "/v2-beta", -1)
 				var opts2 = &client.ClientOpts{
 					Url:       cattleURLv2 + "/projects/" + projectID + "/schemas",
@@ -171,23 +184,16 @@ func serviceHosts(service serviceDef, hostList map[string]int) int {
 				if err != nil {
 					logrus.Error("Error with container client connection")
 				}
-				hostToDisable, err := c.Host.ById(high)
-				//then deactivate the host
-				c.Host.ActionDeactivate(hostToDisable)
-				time.Sleep(10 * time.Second)
-				//then delete the container
+
+				//Delete the container
 				containerToDelete, err := cc.Container.ById(instance)
-				fmt.Println(containerToDelete.EntryPoint)
 				cc.Container.Delete(containerToDelete)
 				if err != nil {
 					logrus.Error(err)
 				}
+
 				//Wait for 10 seconds to allow for allocations service to allocate new server
 				time.Sleep(10 * time.Second)
-				logrus.Info("Reactivating Host: " + high)
-				hostToEnable, err := c.Host.ById(high)
-				c.Host.ActionActivate(hostToEnable)
-				time.Sleep(5 * time.Second)
 
 				break
 			}

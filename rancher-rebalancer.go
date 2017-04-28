@@ -25,6 +25,14 @@ var opts = &client.ClientOpts{
 var projectID = ""
 var rancherEnv = ""
 
+var rancherServices = map[string]string{
+	"healthcheck":     "",
+	"ipsec":           "",
+	"network-manager": "",
+	"scheduler":       "",
+	"metadata":        "",
+	"rancher-agent1":  ""}
+
 type serviceDef struct {
 	name        string
 	id          string
@@ -75,14 +83,13 @@ func main() {
 	}
 }
 
-//Function to rebalance containers between hosts
+//Function to rebalance containers between newHostPrivateDNS
 func rebalance() int {
-	var hostList = hostIdList()
+	var test = hostIdList()
 	var serviceInstanceID = serviceIDList()
 	for service := range serviceInstanceID {
 		logrus.Info("Currently processing service: " + service)
-		serviceHosts(serviceInstanceID[service], hostList)
+		serviceHosts(serviceInstanceID[service], test)
 	}
-	logrus.Info("Finished current processing")
 	return 1
 }
