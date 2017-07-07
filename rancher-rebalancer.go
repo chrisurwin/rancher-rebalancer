@@ -12,18 +12,20 @@ import (
 	"github.com/rancher/go-rancher/v2"
 )
 
-//Global Variable
-var cattleURL = os.Getenv("CATTLE_URL")
-var cattleAccessKey = os.Getenv("CATTLE_ACCESS_KEY")
-var cattleSecretKey = os.Getenv("CATTLE_SECRET_KEY")
-var opts = &client.ClientOpts{
-	Url:       cattleURL,
-	AccessKey: cattleAccessKey,
-	SecretKey: cattleSecretKey,
-}
-
-var projectID = ""
-var rancherEnv = ""
+var (
+	cattleURL       = os.Getenv("CATTLE_URL")
+	cattleAccessKey = os.Getenv("CATTLE_ACCESS_KEY")
+	cattleSecretKey = os.Getenv("CATTLE_SECRET_KEY")
+	opts            = &client.ClientOpts{
+		Url:       cattleURL,
+		AccessKey: cattleAccessKey,
+		SecretKey: cattleSecretKey,
+	}
+	projectID  = ""
+	rancherEnv = ""
+	mode       = os.Getenv("MODE")
+	opt        = os.Getenv("OPT")
+)
 
 var rancherServices = map[string]string{
 	"healthcheck":     "",
@@ -32,12 +34,6 @@ var rancherServices = map[string]string{
 	"scheduler":       "",
 	"metadata":        "",
 	"rancher-agent1":  ""}
-
-type serviceDef struct {
-	name        string
-	id          string
-	instanceIds []string
-}
 
 func main() {
 	if len(cattleURL) == 0 {
@@ -72,24 +68,37 @@ func main() {
 	logrus.Info("Starting Rancher Rebalancer")
 	projectID = getProjectID(rancherEnv)
 	go startHealthcheck()
+	logrus.Info("Operating Mode: " + mode + " Opt mode: " + opt)
 	for {
 		var returnCode = 0
 		returnCode = rebalance()
-		if returnCode == 1 {
-			time.Sleep(60 * time.Second)
-		} else {
-			time.Sleep(5 * time.Minute)
-		}
+		time.Sleep(time.Duration(returnCode) * time.Minute)
 	}
 }
 
-//Function to rebalance containers between newHostPrivateDNS
+//Function to rebalance containers between nodes
 func rebalance() int {
-	var test = hostIdList()
-	var serviceInstanceID = serviceIDList()
-	for service := range serviceInstanceID {
-		logrus.Info("Currently processing service: " + service)
-		serviceHosts(serviceInstanceID[service], test)
+
+	var balanced = false
+	if mode != "AGGRESSIVE" {
+		balanced = evenLoad()
 	}
+
+	if !balanced {
+		var hostList = hostIDList()
+		var serviceInstanceID = serviceIDList()
+
+		for service := range serviceInstanceID {
+			logrus.Info("Currently processing service: " + service)
+			serviceHosts(serviceInstanceID[service], hostList)
+		}
+
+	} else {
+
+		logrus.Info("Server load balanced, AGGRESSIVE mode would need to be used to enforce container balancing")
+		return 1
+
+	}
+
 	return 1
 }
